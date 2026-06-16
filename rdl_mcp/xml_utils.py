@@ -1,11 +1,91 @@
 """XML utility functions for RDL file handling."""
 
 import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as SafeET
+import os
 import re
 import logging
-from typing import Optional
+import shutil
+import tempfile
+import threading
+import datetime
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+class ErrorCode:
+    """Structured error category constants for actionable diagnostics."""
+
+    EMPTY_FILE = "EMPTY_FILE"
+    MALFORMED_XML = "MALFORMED_XML"
+    INVALID_RDL_SCHEMA = "INVALID_RDL_SCHEMA"
+    LOCK_CONFLICT = "LOCK_CONFLICT"
+    WRITE_FAILURE = "WRITE_FAILURE"
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    INVALID_FILEPATH = "INVALID_FILEPATH"
+    COLUMN_NOT_FOUND = "COLUMN_NOT_FOUND"
+    DATASET_NOT_FOUND = "DATASET_NOT_FOUND"
+    PARAMETER_NOT_FOUND = "PARAMETER_NOT_FOUND"
+    INVALID_ARGUMENT = "INVALID_ARGUMENT"
+
+
+class FileLockManager:
+    """Singleton per-file threading-lock manager.
+
+    Guarantees that concurrent mutation calls for the *same resolved path*
+    are serialised, preventing write-over-write file corruption.
+    """
+
+    _singleton_lock: threading.Lock = threading.Lock()
+    _instance: Optional["FileLockManager"] = None
+    _file_locks: Dict[str, threading.Lock]
+
+    def __init__(self) -> None:
+        self._file_locks = {}
+        self._registry_lock = threading.Lock()
+
+    @classmethod
+    def get_instance(cls) -> "FileLockManager":
+        if cls._instance is None:
+            with cls._singleton_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def get_lock(self, filepath: str) -> threading.Lock:
+        """Return (creating if necessary) the lock for *filepath*."""
+        key = os.path.realpath(filepath) if os.path.exists(filepath) else os.path.abspath(filepath)
+        with self._registry_lock:
+            if key not in self._file_locks:
+                self._file_locks[key] = threading.Lock()
+            return self._file_locks[key]
+
+
+def validate_filepath(filepath: str) -> str:
+    """Validate and resolve a filepath for safe access.
+
+    Ensures the path points to a .rdl file, resolves symlinks,
+    and prevents path traversal attacks (CWE-22).
+
+    Returns:
+        The resolved absolute filepath.
+
+    Raises:
+        ValueError: If the filepath is invalid or unsafe.
+    """
+    if not filepath or not isinstance(filepath, str):
+        raise ValueError("Filepath must be a non-empty string")
+
+    resolved = os.path.realpath(filepath)
+
+    if not resolved.lower().endswith('.rdl'):
+        raise ValueError("Only .rdl files are supported")
+
+    if not os.path.isfile(resolved):
+        raise FileNotFoundError("File not found")
+
+    return resolved
 
 
 def get_namespace(root: ET.Element) -> str:
@@ -40,15 +120,25 @@ def register_namespaces(filepath: str):
 
 
 def parse_rdl(filepath: str) -> ET.Element:
-    """Parse an RDL file and return the root element."""
-    tree = ET.parse(filepath)
+    """Parse an RDL file and return the root element.
+
+    Uses defusedxml to prevent XXE and entity expansion attacks (CWE-611, CWE-776).
+    Validates the filepath to prevent path traversal (CWE-22).
+    """
+    resolved = validate_filepath(filepath)
+    tree = SafeET.parse(resolved)
     return tree.getroot()
 
 
 def parse_rdl_tree(filepath: str) -> ET.ElementTree:
-    """Parse an RDL file and return the ElementTree (for modifications)."""
-    register_namespaces(filepath)
-    return ET.parse(filepath)
+    """Parse an RDL file and return the ElementTree (for modifications).
+
+    Uses defusedxml to prevent XXE and entity expansion attacks (CWE-611, CWE-776).
+    Validates the filepath to prevent path traversal (CWE-22).
+    """
+    resolved = validate_filepath(filepath)
+    register_namespaces(resolved)
+    return SafeET.parse(resolved)
 
 
 def indent_xml(elem: ET.Element, level: int = 0):
@@ -68,21 +158,72 @@ def indent_xml(elem: ET.Element, level: int = 0):
             elem.tail = indent
 
 
-def write_xml(tree: ET.ElementTree, filepath: str):
-    """Write an ElementTree to file with proper formatting."""
+def write_xml(tree: ET.ElementTree, filepath: str,
+              backup: bool = False) -> Optional[str]:
+    """Write an ElementTree to file atomically with proper formatting.
+
+    Steps:
+    1. Acquire per-file threading lock (prevents concurrent write corruption).
+    2. Optionally create a timestamped backup of the current file.
+    3. Write formatted XML to a sibling temp file.
+    4. Validate the temp file is parseable XML.
+    5. Atomically replace the original (``os.replace``).
+    6. Release the lock (even on failure; original file is never touched).
+
+    Args:
+        tree: The ElementTree to write.
+        filepath: Destination path (must already have been validated).
+        backup: When True, save a timestamped ``.bak`` copy before replacing.
+
+    Returns:
+        The backup path when *backup* is True and a backup was created,
+        otherwise ``None``.
+
+    Raises:
+        OSError: If the temp write or atomic replace fails.
+    """
     root = tree.getroot()
     indent_xml(root)
 
-    # Write with XML declaration
-    with open(filepath, 'wb') as f:
-        tree.write(f, encoding='utf-8', xml_declaration=True)
+    file_lock = FileLockManager.get_instance().get_lock(filepath)
+    backup_path: Optional[str] = None
 
-    # Fix the XML declaration to use double quotes (SSRS preference)
-    with open(filepath, 'r') as f:
-        content = f.read()
-    content = content.replace("'", '"', 2)  # Fix XML declaration quotes
-    with open(filepath, 'w') as f:
-        f.write(content)
+    with file_lock:
+        # --- optional backup ---
+        if backup and os.path.isfile(filepath):
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{filepath}.{timestamp}.bak"
+            shutil.copy2(filepath, backup_path)
+
+        # --- write to temp file ---
+        dir_name = os.path.dirname(os.path.abspath(filepath))
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tmp", dir=dir_name)
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                tree.write(tmp_f, encoding="utf-8", xml_declaration=True)
+
+            # Fix XML declaration quotes (SSRS preference: double quotes)
+            with open(tmp_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            content = content.replace("'", '"', 2)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # --- validate the temp file before replacing the original ---
+            SafeET.parse(tmp_path)
+
+            # --- atomic replace ---
+            os.replace(tmp_path, filepath)
+
+        except Exception:
+            # Rollback: remove temp file; original is untouched
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    return backup_path
 
 
 def find_parent(root: ET.Element, target: ET.Element) -> Optional[ET.Element]:

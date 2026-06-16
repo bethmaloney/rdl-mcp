@@ -4,7 +4,7 @@ mcp-name: io.github.bethmaloney/rdl-mcp
 
 [![PyPI](https://img.shields.io/pypi/v/rdl-mcp.svg)](https://pypi.org/project/rdl-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io)
 
 Edit SSRS reports using AI assistants instead of wrestling with 2000+ lines of XML. This [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server gives Claude, Copilot, and other AI tools simple commands to read and modify RDL files.
@@ -21,6 +21,7 @@ Edit SSRS reports using AI assistants instead of wrestling with 2000+ lines of X
 - `update_column_header` / `update_column_width` - Change columns
 - `add_column` / `remove_column` - Add or remove columns
 - `update_column_format` - Change number/date formatting
+- `update_column_colors` - Change the colors for the column header and the data rows
 - `update_stored_procedure` - Swap stored procedures
 - `add_dataset_field` / `remove_dataset_field` - Manage dataset fields
 - `add_parameter` / `update_parameter` - Manage parameters
@@ -30,12 +31,12 @@ Edit SSRS reports using AI assistants instead of wrestling with 2000+ lines of X
 - AI sees clean JSON instead of verbose XML namespaces
 - One-line commands instead of error-prone string manipulation
 - Automatic validation catches errors before they break reports
-- No dependencies - just Python 3.8+ standard library
+- Built on [fastmcp](https://github.com/jlowin/fastmcp) for a robust, standards-compliant MCP transport
 
 ## Installation
 
 **Requirements:**
-- Python 3.8 or higher
+- Python 3.10 or higher
 - [uv](https://docs.astral.sh/uv/) (Python package manager and tool runner)
 
 **Installing uv:**
@@ -90,14 +91,6 @@ Add to VSCode settings (`.vscode/mcp.json` in your workspace or user settings):
 
 **After installation:** Restart your AI assistant and try: `"Describe the structure of my report.rdl file"`
 
-<details>
-<summary>Optional: Enable debug logging</summary>
-
-Set environment variables:
-- `RDL_MCP_LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, or `ERROR`
-- `RDL_MCP_LOG_FILE`: Path to log file
-</details>
-
 ## Usage
 
 Just ask your AI assistant in natural language:
@@ -144,7 +137,9 @@ update_column_header(filepath="report.rdl",
   - `field_limit`: 0 = counts only (default), -1 = all fields, N = limit to N fields
   - `field_pattern`: Optional regex to filter field names
 - **`get_rdl_parameters(filepath)`** - All parameters with configurations
-- **`get_rdl_columns(filepath)`** - Column headers, widths, bindings
+- **`get_rdl_columns(filepath)`** - Column headers, widths, bindings, and textbox names
+  - `header_textbox_name`: Name of the header-row Textbox (used for layout/styling)
+  - `data_textbox_name`: Name of the data-row Textbox (used by SSRS as the CSV/text export column header)
 
 ### Editing Tools
 
@@ -153,6 +148,7 @@ update_column_header(filepath="report.rdl",
 - **`update_column_format(filepath, column_index, format_string)`** - Change format (e.g. "#,0.00", "dd/MM/yyyy", "C2")
 - **`add_column(filepath, column_index, header_text, field_binding, width?, format_string?, footer_expression?)`** - Add column
   - `footer_expression`: Optional expression for footer/total row - e.g. "=Sum(Fields!Amount.Value)", "=Count(Fields!ID.Value)", "Total:", or leave empty
+  - The data-row textbox is automatically named after the field (e.g. `=Fields!Ship_Date.Value` → `Name="Ship_Date"`) so SSRS CSV/text exports use the correct column header
 - **`remove_column(filepath, column_index)`** - Remove column
 - **`update_stored_procedure(filepath, dataset_name, new_sproc)`** - Change dataset sproc
 - **`add_dataset_field(filepath, dataset_name, field_name, data_field, type_name)`** - Add field to dataset
@@ -181,7 +177,7 @@ All tools return `{success: bool, message?: string, error?: string}` or structur
 
 **Server not appearing?**
 - Check absolute path in config is correct
-- Verify Python 3.8+: `python3 --version`
+- Verify Python 3.10+: `python3 --version`
 - Restart your MCP client
 
 **Permission errors?**
@@ -237,7 +233,7 @@ PRs welcome! Priority areas:
 - Better column detection for complex layouts
 - More editing operations (reordering, grouping, etc.)
 
-Requirements: Python standard library only
+Requirements: Python 3.10+, fastmcp
 
 1. Fork repo
 2. Create feature branch

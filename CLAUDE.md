@@ -32,8 +32,8 @@ uvx rdl-mcp
 
 The codebase follows a modular design with the main MCP server delegating to specialized modules:
 
-- **`rdl_mcp_server.py`** - Entry point with logging setup, imports `MCPServer` from package
-- **`rdl_mcp/server.py`** - Core `MCPServer` class handling JSON-RPC protocol, tool registration, and request routing
+- **`rdl_mcp_server.py`** - Entry point; calls `mcp.run()` to start the fastmcp server
+- **`rdl_mcp/server.py`** - fastmcp `mcp` instance with `@mcp.tool` decorators for all tools; also exports `MCPServer` (a thin wrapper used by tests)
 - **`rdl_mcp/reader.py`** - Read-only operations: `describe_rdl_report`, `get_rdl_datasets`, `get_rdl_parameters`, `get_rdl_columns`
 - **`rdl_mcp/columns.py`** - Column modifications: add/remove/update header/width/format
 - **`rdl_mcp/datasets.py`** - Dataset operations: add/remove fields, update stored procedures
@@ -43,28 +43,19 @@ The codebase follows a modular design with the main MCP server delegating to spe
 
 ## Key Constraints
 
-- **Python standard library only** - No external dependencies beyond pytest for testing
-- **Python 3.8+ compatibility** required
+- **fastmcp** - MCP transport is provided by the `fastmcp` library (declared in `pyproject.toml`)
+- **Python 3.10+ compatibility** required
 - **Tablix controls only** - Currently supports table-based reports, not Matrix or Chart controls
 - **RDL 2016 namespace** - Uses `http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition`
 
 ## MCP Protocol
 
-The server uses JSON-RPC 2.0 over stdin/stdout. Key methods:
-- `initialize` - Returns server capabilities
-- `tools/list` - Returns available tools with JSON schemas
-- `tools/call` - Executes a tool with arguments
+The server uses fastmcp for the MCP transport (stdio by default). Tool registration is done via `@mcp.tool` decorators in `rdl_mcp/server.py`. fastmcp automatically handles protocol negotiation, tool listing, and tool dispatch.
 
 ## Testing
 
-Tests use pytest with fixtures that create temporary RDL files. The `_create_sample_report()` function in tests generates valid minimal RDL documents for testing.
+Tests use pytest with fixtures that create temporary RDL files. The `_create_sample_report()` function in tests generates valid minimal RDL documents for testing. `TestFastMCPServer` verifies that all tools are correctly registered with the fastmcp instance.
 
 **Requirements:**
 - Write tests before implementing any changes
 - All tests must pass after making changes (`python3 -m pytest tests/ -v`)
-
-## Logging
-
-Configure via environment variables:
-- `RDL_MCP_LOG_LEVEL`: DEBUG, INFO, WARNING, ERROR
-- `RDL_MCP_LOG_FILE`: Path to log file

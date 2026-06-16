@@ -7,18 +7,18 @@ name = "rdl-mcp"
 version = "0.1.0"
 description = "Edit SSRS reports using AI - MCP server for RDL files"
 readme = "README.md"
-requires-python = ">=3.8"
-license = {text = "MIT"}
-authors = [
-    {name = "Beth Maloney"}
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "defusedxml>=0.7.1",
+    "fastmcp>=3.2",
 ]
+authors = [{ name = "Beth Maloney" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -28,6 +28,14 @@ classifiers = [
 Homepage = "https://github.com/bethmaloney/rdl-mcp"
 Repository = "https://github.com/bethmaloney/rdl-mcp"
 Issues = "https://github.com/bethmaloney/rdl-mcp/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]
 
 [project.scripts]
 rdl-mcp = "rdl_mcp_server:main"

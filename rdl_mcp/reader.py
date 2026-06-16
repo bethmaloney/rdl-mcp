@@ -122,10 +122,15 @@ def get_rdl_datasets(filepath: str, field_limit: int = 0, field_pattern: Optiona
         # Apply field pattern filter
         if field_pattern:
             try:
-                pattern_re = re.compile(field_pattern, re.IGNORECASE)
-                filtered_fields = [f for f in all_fields if pattern_re.search(f['name'])]
+                # Limit pattern length to prevent ReDoS (CWE-1333)
+                if len(field_pattern) > 200:
+                    logger.warning("field_pattern too long, ignoring")
+                    filtered_fields = all_fields
+                else:
+                    pattern_re = re.compile(field_pattern, re.IGNORECASE)
+                    filtered_fields = [f for f in all_fields if pattern_re.search(f['name'])]
             except re.error as e:
-                logger.warning(f"Invalid field_pattern regex: {field_pattern}, error: {e}")
+                logger.warning(f"Invalid field_pattern regex, error: {e}")
                 filtered_fields = all_fields
         else:
             filtered_fields = all_fields
@@ -199,7 +204,13 @@ def get_rdl_parameters(filepath: str) -> Dict[str, Any]:
 
 
 def get_rdl_columns(filepath: str) -> Dict[str, Any]:
-    """Get table columns with their headers, widths, field bindings, and formatting."""
+    """Get table columns with their headers, widths, field bindings, and formatting.
+
+    Each column entry includes:
+      - header_textbox_name: Name attribute of the header-row Textbox (used for report styling/layout)
+      - data_textbox_name:   Name attribute of the data-row Textbox (used by SSRS as the CSV/text export column header)
+    These names differ — callers looking up a textbox in the XML should use the appropriate one.
+    """
     root = parse_rdl(filepath)
     ns = get_namespace(root)
 
@@ -241,10 +252,10 @@ def get_rdl_columns(filepath: str) -> Dict[str, Any]:
         for col_idx, cell in enumerate(header_cells):
             textbox = cell.find(f'.//{ns}Textbox')
             header_text = ''
-            textbox_name = ''
+            header_textbox_name = ''
 
             if textbox is not None:
-                textbox_name = textbox.get('Name', '')
+                header_textbox_name = textbox.get('Name', '')
                 value = textbox.find(f'.//{ns}Value')
                 if value is not None and value.text:
                     header_text = value.text
@@ -260,7 +271,7 @@ def get_rdl_columns(filepath: str) -> Dict[str, Any]:
                 'index': col_idx,
                 'header': header_text,
                 'width': widths[col_idx] if col_idx < len(widths) else '',
-                'textbox_name': textbox_name
+                'header_textbox_name': header_textbox_name
             })
 
     # Get data bindings
@@ -270,6 +281,7 @@ def get_rdl_columns(filepath: str) -> Dict[str, Any]:
             if col_idx < len(columns):
                 textbox = cell.find(f'.//{ns}Textbox')
                 if textbox is not None:
+                    columns[col_idx]['data_textbox_name'] = textbox.get('Name', '')
                     value = textbox.find(f'.//{ns}Value')
                     if value is not None and value.text:
                         binding = value.text

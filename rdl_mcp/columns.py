@@ -1,5 +1,6 @@
 """RDL column operations - add, remove, update columns."""
 
+import re
 import xml.etree.ElementTree as ET
 import logging
 from typing import Dict, List, Any, Optional
@@ -140,6 +141,96 @@ def remove_column(filepath: str, column_index: int,
     return {'success': True, 'message': f'Removed column at index {column_index}'}
 
 
+def update_column_colors(filepath: str, column_index: int,
+                         text_color: Optional[str] = None,
+                         background_color: Optional[str] = None,
+                         header_text_color: Optional[str] = None,
+                         header_background_color: Optional[str] = None) -> Dict[str, Any]:
+    """Update text and background colors for a column's data and/or header cells.
+
+    Args:
+        filepath: Path to the RDL file
+        column_index: Zero-based index of the column to update
+        text_color: Text color for data cells (e.g., 'Red', '#FF0000')
+        background_color: Background color for data cells
+        header_text_color: Text color for header cell
+        header_background_color: Background color for header cell
+    """
+    colors = (text_color, background_color, header_text_color, header_background_color)
+    if all(c is None for c in colors):
+        return {'success': False, 'message': 'At least one color parameter must be provided'}
+
+    tree = parse_rdl_tree(filepath)
+    root = tree.getroot()
+    ns = get_namespace(root)
+
+    tablix = root.find(f'.//{ns}Tablix')
+    if tablix is None:
+        return {'success': False, 'message': 'No Tablix found in report'}
+
+    tablix_rows = tablix.findall(f'.//{ns}TablixBody/{ns}TablixRows/{ns}TablixRow')
+
+    updated_rows = []
+
+    for row in tablix_rows:
+        cells = row.findall(f'{ns}TablixCells/{ns}TablixCell')
+        row_type = _detect_row_type(cells, ns)
+
+        if row_type not in ('header', 'data'):
+            continue
+
+        if row_type == 'data':
+            t_color = text_color
+            bg_color = background_color
+        else:
+            t_color = header_text_color
+            bg_color = header_background_color
+
+        if t_color is None and bg_color is None:
+            continue
+
+        if column_index >= len(cells):
+            return {'success': False, 'message': f'Column index {column_index} out of range'}
+
+        cell = cells[column_index]
+        textbox = cell.find(f'.//{ns}Textbox')
+        if textbox is None:
+            continue
+
+        # Find or create Style element as a direct child of Textbox
+        style = textbox.find(f'{ns}Style')
+        if style is None:
+            style = ET.Element(f'{ns}Style')
+            textbox.insert(0, style)
+
+        if t_color is not None:
+            color_elem = style.find(f'{ns}Color')
+            if color_elem is None:
+                color_elem = ET.SubElement(style, f'{ns}Color')
+            color_elem.text = t_color
+
+        if bg_color is not None:
+            bg_elem = style.find(f'{ns}BackgroundColor')
+            if bg_elem is None:
+                bg_elem = ET.SubElement(style, f'{ns}BackgroundColor')
+            bg_elem.text = bg_color
+
+        updated_rows.append(row_type)
+
+    if not updated_rows:
+        return {'success': False, 'message': 'No matching rows found to update'}
+
+    write_xml(tree, filepath)
+
+    parts = []
+    if text_color is not None or background_color is not None:
+        parts.append('data row colors updated')
+    if header_text_color is not None or header_background_color is not None:
+        parts.append('header row colors updated')
+
+    return {'success': True, 'message': f'Column {column_index} colors updated: {", ".join(parts)}'}
+
+
 def update_column_format(filepath: str, column_index: int, format_string: str) -> Dict[str, Any]:
     """Update the format string for a column."""
     tree = parse_rdl_tree(filepath)
@@ -232,6 +323,12 @@ def update_column_width(filepath: str, column_index: int, new_width: str) -> Dic
     return {'success': True, 'message': f'Updated column {column_index} width to {new_width}'}
 
 
+def _data_textbox_name(field_binding: str, fallback: str) -> str:
+    """Return the field name from a Fields!X.Value expression, or fallback."""
+    m = re.search(r'Fields!(\w+)\.Value', field_binding)
+    return m.group(1) if m else fallback
+
+
 def _create_table_cell(ns: str, row_type: str, row_idx: int,
                        col_idx: int, header_text: str, field_binding: str,
                        format_string: Optional[str], footer_expression: Optional[str]) -> ET.Element:
@@ -239,7 +336,11 @@ def _create_table_cell(ns: str, row_type: str, row_idx: int,
     cell = ET.Element(f'{ns}TablixCell')
     contents = ET.SubElement(cell, f'{ns}CellContents')
 
-    textbox_name = f'Textbox_r{row_idx}_c{col_idx}'
+    generic_name = f'Textbox_r{row_idx}_c{col_idx}'
+    if row_type == 'data':
+        textbox_name = _data_textbox_name(field_binding, generic_name)
+    else:
+        textbox_name = generic_name
     textbox = ET.SubElement(contents, f'{ns}Textbox')
     textbox.set('Name', textbox_name)
 

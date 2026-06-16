@@ -1,11 +1,12 @@
 """RDL validation logic and expression parsing."""
 
 import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as SafeET
 import re
 import logging
 from typing import Dict, List, Any, Optional
 
-from .xml_utils import get_namespace, find_parent
+from .xml_utils import get_namespace, find_parent, validate_filepath
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,8 @@ def extract_field_references(expression: str) -> List[str]:
 def validate_rdl(filepath: str) -> Dict[str, Any]:
     """Validate RDL XML structure and field references in expressions."""
     try:
-        tree = ET.parse(filepath)
+        resolved = validate_filepath(filepath)
+        tree = SafeET.parse(resolved)
         root = tree.getroot()
         ns = get_namespace(root)
 
