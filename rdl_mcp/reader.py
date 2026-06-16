@@ -204,7 +204,13 @@ def get_rdl_parameters(filepath: str) -> Dict[str, Any]:
 
 
 def get_rdl_columns(filepath: str) -> Dict[str, Any]:
-    """Get table columns with their headers, widths, field bindings, and formatting."""
+    """Get table columns with their headers, widths, field bindings, and formatting.
+
+    Each column entry includes:
+      - header_textbox_name: Name attribute of the header-row Textbox (used for report styling/layout)
+      - data_textbox_name:   Name attribute of the data-row Textbox (used by SSRS as the CSV/text export column header)
+    These names differ — callers looking up a textbox in the XML should use the appropriate one.
+    """
     root = parse_rdl(filepath)
     ns = get_namespace(root)
 
@@ -246,10 +252,10 @@ def get_rdl_columns(filepath: str) -> Dict[str, Any]:
         for col_idx, cell in enumerate(header_cells):
             textbox = cell.find(f'.//{ns}Textbox')
             header_text = ''
-            textbox_name = ''
+            header_textbox_name = ''
 
             if textbox is not None:
-                textbox_name = textbox.get('Name', '')
+                header_textbox_name = textbox.get('Name', '')
                 value = textbox.find(f'.//{ns}Value')
                 if value is not None and value.text:
                     header_text = value.text
@@ -265,7 +271,7 @@ def get_rdl_columns(filepath: str) -> Dict[str, Any]:
                 'index': col_idx,
                 'header': header_text,
                 'width': widths[col_idx] if col_idx < len(widths) else '',
-                'textbox_name': textbox_name
+                'header_textbox_name': header_textbox_name
             })
 
     # Get data bindings
@@ -275,6 +281,7 @@ def get_rdl_columns(filepath: str) -> Dict[str, Any]:
             if col_idx < len(columns):
                 textbox = cell.find(f'.//{ns}Textbox')
                 if textbox is not None:
+                    columns[col_idx]['data_textbox_name'] = textbox.get('Name', '')
                     value = textbox.find(f'.//{ns}Value')
                     if value is not None and value.text:
                         binding = value.text

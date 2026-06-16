@@ -137,7 +137,9 @@ update_column_header(filepath="report.rdl",
   - `field_limit`: 0 = counts only (default), -1 = all fields, N = limit to N fields
   - `field_pattern`: Optional regex to filter field names
 - **`get_rdl_parameters(filepath)`** - All parameters with configurations
-- **`get_rdl_columns(filepath)`** - Column headers, widths, bindings
+- **`get_rdl_columns(filepath)`** - Column headers, widths, bindings, and textbox names
+  - `header_textbox_name`: Name of the header-row Textbox (used for layout/styling)
+  - `data_textbox_name`: Name of the data-row Textbox (used by SSRS as the CSV/text export column header)
 
 ### Editing Tools
 
@@ -146,6 +148,7 @@ update_column_header(filepath="report.rdl",
 - **`update_column_format(filepath, column_index, format_string)`** - Change format (e.g. "#,0.00", "dd/MM/yyyy", "C2")
 - **`add_column(filepath, column_index, header_text, field_binding, width?, format_string?, footer_expression?)`** - Add column
   - `footer_expression`: Optional expression for footer/total row - e.g. "=Sum(Fields!Amount.Value)", "=Count(Fields!ID.Value)", "Total:", or leave empty
+  - The data-row textbox is automatically named after the field (e.g. `=Fields!Ship_Date.Value` → `Name="Ship_Date"`) so SSRS CSV/text exports use the correct column header
 - **`remove_column(filepath, column_index)`** - Remove column
 - **`update_stored_procedure(filepath, dataset_name, new_sproc)`** - Change dataset sproc
 - **`add_dataset_field(filepath, dataset_name, field_name, data_field, type_name)`** - Add field to dataset

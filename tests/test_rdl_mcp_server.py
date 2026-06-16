@@ -517,6 +517,63 @@ class TestColumnOperations:
 
         assert result['success'] == True
 
+    def test_add_column_data_textbox_named_after_field(self, server, temp_report):
+        result = server.add_column(
+            temp_report, -1, 'Ship Date', '=Fields!Ship_Date.Value'
+        )
+        assert result['success'] == True
+
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(temp_report)
+        root = tree.getroot()
+        ns = '{http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition}'
+
+        tablix_rows = root.findall(f'.//{ns}TablixBody/{ns}TablixRows/{ns}TablixRow')
+        data_row = None
+        for row in tablix_rows:
+            cells = row.findall(f'{ns}TablixCells/{ns}TablixCell')
+            # Data row cells contain field bindings, not plain string headers
+            for cell in cells:
+                val = cell.find(f'.//{ns}Value')
+                if val is not None and val.text and val.text.startswith('=Fields!'):
+                    data_row = row
+                    break
+            if data_row is not None:
+                break
+
+        assert data_row is not None, 'No data row found'
+        cells = data_row.findall(f'{ns}TablixCells/{ns}TablixCell')
+        new_cell = cells[-1]
+        textbox = new_cell.find(f'.//{ns}Textbox')
+        assert textbox is not None
+        assert textbox.get('Name') == 'Ship_Date', (
+            f"Expected 'Ship_Date', got '{textbox.get('Name')}'"
+        )
+
+    def test_add_column_data_textbox_fallback_name_without_fields_binding(self, server, temp_report):
+        result = server.add_column(
+            temp_report, -1, 'Literal Col', 'some literal'
+        )
+        assert result['success'] == True
+
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(temp_report)
+        root = tree.getroot()
+        ns = '{http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition}'
+
+        tablix_rows = root.findall(f'.//{ns}TablixBody/{ns}TablixRows/{ns}TablixRow')
+        for row in tablix_rows:
+            cells = row.findall(f'{ns}TablixCells/{ns}TablixCell')
+            for cell in cells:
+                val = cell.find(f'.//{ns}Value')
+                if val is not None and val.text == 'some literal':
+                    textbox = cell.find(f'.//{ns}Textbox')
+                    assert textbox is not None
+                    # Should fall back to a generic Textbox name (not crash)
+                    assert textbox.get('Name') is not None
+                    return
+        assert False, 'Data cell with literal value not found'
+
     def test_remove_column(self, server, temp_report):
         # Get initial column count
         columns_before = server.get_rdl_columns(temp_report)

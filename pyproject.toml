@@ -32,5 +32,10 @@ Issues = "https://github.com/bethmaloney/rdl-mcp/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]
+
 [project.scripts]
 rdl-mcp = "rdl_mcp_server:main"

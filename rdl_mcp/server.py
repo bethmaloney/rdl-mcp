@@ -43,7 +43,11 @@ def get_rdl_parameters(filepath: str) -> Dict[str, Any]:
 
 @mcp.tool
 def get_rdl_columns(filepath: str) -> Dict[str, Any]:
-    """Get table columns with headers, widths, and bindings."""
+    """Get table columns with headers, widths, bindings, and textbox names.
+
+    Each column includes header_textbox_name (header-row Textbox Name, used for layout/styling)
+    and data_textbox_name (data-row Textbox Name, used by SSRS as the CSV/text export column header).
+    """
     return reader.get_rdl_columns(filepath)
 
 

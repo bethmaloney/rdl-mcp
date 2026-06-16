@@ -1,5 +1,6 @@
 """RDL column operations - add, remove, update columns."""
 
+import re
 import xml.etree.ElementTree as ET
 import logging
 from typing import Dict, List, Any, Optional
@@ -322,6 +323,12 @@ def update_column_width(filepath: str, column_index: int, new_width: str) -> Dic
     return {'success': True, 'message': f'Updated column {column_index} width to {new_width}'}
 
 
+def _data_textbox_name(field_binding: str, fallback: str) -> str:
+    """Return the field name from a Fields!X.Value expression, or fallback."""
+    m = re.search(r'Fields!(\w+)\.Value', field_binding)
+    return m.group(1) if m else fallback
+
+
 def _create_table_cell(ns: str, row_type: str, row_idx: int,
                        col_idx: int, header_text: str, field_binding: str,
                        format_string: Optional[str], footer_expression: Optional[str]) -> ET.Element:
@@ -329,7 +336,11 @@ def _create_table_cell(ns: str, row_type: str, row_idx: int,
     cell = ET.Element(f'{ns}TablixCell')
     contents = ET.SubElement(cell, f'{ns}CellContents')
 
-    textbox_name = f'Textbox_r{row_idx}_c{col_idx}'
+    generic_name = f'Textbox_r{row_idx}_c{col_idx}'
+    if row_type == 'data':
+        textbox_name = _data_textbox_name(field_binding, generic_name)
+    else:
+        textbox_name = generic_name
     textbox = ET.SubElement(contents, f'{ns}Textbox')
     textbox.set('Name', textbox_name)
 
